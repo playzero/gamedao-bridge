@@ -1,0 +1,145 @@
+version: '3'
+
+services:
+
+#
+#   identity node
+#   nodejs graphql metamask signin
+#
+
+  auth-api:
+    build: ../api-node
+    image: zero/api-auth:dev
+    ports:
+      - '18800:8800'
+
+#
+#   identity database
+#
+
+  auth-db:
+    image: postgres
+    ports:
+      - '15432:5432'
+    command: ["postgres", "-cshared_preload_libraries=pg_stat_statements"]
+    environment:
+      POSTGRES_USER: dao-id
+      POSTGRES_PASSWORD: let-me-in
+      POSTGRES_DB: dao-id
+    volumes:
+      - ../data/pg/auth-db:/var/lib/postgresql/data
+
+#
+#   hasura
+#
+
+  data-db:
+    image: postgres
+    ports:
+      - '25432:5432'
+    command: ["postgres", "-cshared_preload_libraries=pg_stat_statements"]
+    environment:
+      POSTGRES_USER: data-hasura
+      POSTGRES_PASSWORD: d474
+      POSTGRES_DB: core
+    volumes:
+      - ../data/pg/graphql:/var/lib/postgresql/data
+
+  data-graphql:
+    # image: hasura/graphql-engine:v1.2.0
+    image: hasura/graphql-engine:latest
+    ports:
+    - '28080:8080'
+    depends_on:
+    - 'data-db'
+    restart: always
+    environment:
+      HASURA_GRAPHQL_DATABASE_URL: postgres://data-hasura:d474@data-db:5432/core
+      HASURA_GRAPHQL_ENABLE_CONSOLE: "true" # set to "false" to disable console
+      HASURA_GRAPHQL_ENABLED_LOG_TYPES: startup, http-log, webhook-log, websocket-log, query-log
+      # admin secret — remove when not dev
+      HASURA_GRAPHQL_ADMIN_SECRET: myadminsecretkey
+
+#
+#   graph node ethereum indexer
+#
+
+  graph-node:
+    image: graphprotocol/graph-node
+    ports:
+      - '8000:8000'
+      - '8001:8001'
+      - '8020:8020'
+      - '8030:8030'
+      - '8040:8040'
+    depends_on:
+      - ipfs
+      - pg-graph-node
+    environment:
+      postgres_host: pg-graph-node:5432
+      postgres_user: graph-node
+      postgres_pass: let-me-in
+      postgres_db: graph-node
+      ipfs: 'ipfs:5001'
+      # ethereum: 'mainnet:http://host.docker.internal:8545'
+      ethereum: 'mainnet:http://ganache-cli:8545'
+      RUST_LOG: info
+
+  pg-graph-node:
+    image: postgres
+    ports:
+      - '5432:5432'
+    command: ["postgres", "-cshared_preload_libraries=pg_stat_statements"]
+    environment:
+      POSTGRES_USER: graph-node
+      POSTGRES_PASSWORD: let-me-in
+      POSTGRES_DB: graph-node
+    volumes:
+      - ../data/pg/graph-node:/var/lib/postgresql/data
+
+#
+#   postgres admin
+#
+
+  db-admin:
+    image: adminer
+    restart: always
+    ports:
+      - 38080:8080
+    links:
+      - pg-graph-node:pg-graph-node
+      - auth-db:auth-db
+      - data-db:data-db
+
+#
+#   redis database
+#
+
+  redis:
+    image: redis
+    ports:
+      - 16379:6379
+
+#
+#   local testing ganache ethereum node
+#
+
+  ganache:
+    image: trufflesuite/ganache-cli
+    command: ["ganache-cli","-h","0.0.0.0","-m","broom rotate east surge symbol tenant level injury escape valid mix satisfy","--db","/data"]
+    volumes:
+      - ../data/ganache:/data
+    ports:
+      - 8545:8545
+
+#
+#   ipfs node
+#
+
+  ipfs:
+    image: ipfs/go-ipfs
+    ports:
+      - '5001:5001'
+    volumes:
+      - ../data/ipfs:/data/ipfs
+
